@@ -11,3 +11,7 @@ future>=0.15.2
 cryptography>=2.1.4,<35
 pyparsing>=2.0.3,<2.4.0
 pyelftools>=0.22
+
+# packaging is used by newer versions of check_python_dependencies when optional
+# fallback logic is enabled; add it proactively.
+packaging

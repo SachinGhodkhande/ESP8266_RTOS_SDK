@@ -1059,15 +1059,35 @@ def action_install_python_env(args):
     if not os.path.exists(virtualenv_python):
         info('Creating a new Python environment in {}'.format(idf_python_env_path))
 
+        def _in_virtualenv():
+            # similar detection to check_python_dependencies.is_virtualenv()
+            return (hasattr(sys, 'real_prefix') or
+                    (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix) or
+                    os.environ.get('VIRTUAL_ENV') is not None)
+
         try:
             import virtualenv   # noqa: F401
+            have_virtualenv = True
         except ImportError:
-            info('Installing virtualenv')
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--user', 'virtualenv'],
+            have_virtualenv = False
+        if not have_virtualenv:
+            info('virtualenv package not available; attempting to create environment with built-in venv')
+            try:
+                subprocess.check_call([sys.executable, '-m', 'venv', idf_python_env_path],
+                                      stdout=sys.stdout, stderr=sys.stderr)
+            except Exception:
+                # last resort, try installing virtualenv if not in a restricted environment
+                info('Failed to create environment with venv, trying to install virtualenv')
+                pip_cmd = [sys.executable, '-m', 'pip', 'install']
+                if not _in_virtualenv():
+                    pip_cmd.append('--user')
+                pip_cmd.append('virtualenv')
+                subprocess.check_call(pip_cmd, stdout=sys.stdout, stderr=sys.stderr)
+                subprocess.check_call([sys.executable, '-m', 'virtualenv', idf_python_env_path],
+                                      stdout=sys.stdout, stderr=sys.stderr)
+        else:
+            subprocess.check_call([sys.executable, '-m', 'virtualenv', idf_python_env_path],
                                   stdout=sys.stdout, stderr=sys.stderr)
-
-        subprocess.check_call([sys.executable, '-m', 'virtualenv', idf_python_env_path],
-                              stdout=sys.stdout, stderr=sys.stderr)
     run_args = [virtualenv_python, '-m', 'pip', 'install', '--no-warn-script-location']
     requirements_txt = os.path.join(global_idf_path, 'requirements.txt')
     run_args += ['-r', requirements_txt]
