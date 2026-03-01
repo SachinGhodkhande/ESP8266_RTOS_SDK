@@ -44,3 +44,6 @@ docs/doxygen_sqlite3.db
 .DS_Store
 
 docs/_build/
+ESP_modified_files/
+venv
+ESP8266_RTOS_SDK.code-workspace
