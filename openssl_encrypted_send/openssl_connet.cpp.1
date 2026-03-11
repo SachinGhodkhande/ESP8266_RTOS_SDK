@@ -1,0 +1,115 @@
+#include <iostream>
+#include <string>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+int main() {
+    const char* host = "192.168.1.11";
+    const int port = 443;
+
+    // Initialize OpenSSL
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+
+    // Create SSL context with TLS 1.2
+    const SSL_METHOD* method = TLS_client_method();
+    SSL_CTX* ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        std::cerr << "Unable to create SSL context\n";
+        ERR_print_errors_fp(stderr);
+        return 1;
+    }
+
+    // Force TLS 1.2
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
+
+    // Load CA file
+    if (!SSL_CTX_load_verify_locations(ctx, "ca.pem", nullptr)) {
+        std::cerr << "Failed to load CA file\n";
+        ERR_print_errors_fp(stderr);
+        return 1;
+    }
+
+    // Load client certificate
+    if (SSL_CTX_use_certificate_file(ctx, "client.pem", SSL_FILETYPE_PEM) <= 0) {
+        std::cerr << "Failed to load client certificate\n";
+        ERR_print_errors_fp(stderr);
+        return 1;
+    }
+
+    // Load client key
+    if (SSL_CTX_use_PrivateKey_file(ctx, "client.key", SSL_FILETYPE_PEM) <= 0) {
+        std::cerr << "Failed to load client key\n";
+        ERR_print_errors_fp(stderr);
+        return 1;
+    }
+
+    // Verify key and certificate match
+    if (!SSL_CTX_check_private_key(ctx)) {
+        std::cerr << "Private key does not match the certificate public key\n";
+        return 1;
+    }
+
+    // Create socket
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("Socket creation failed");
+        return 1;
+    }
+
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &server_addr.sin_addr) <= 0) {
+        perror("Invalid address");
+        close(sock);
+        return 1;
+    }
+
+    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Connection failed");
+        close(sock);
+        return 1;
+    }
+
+    // Create SSL object
+    SSL* ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, sock);
+
+    // Perform TLS handshake
+    if (SSL_connect(ssl) <= 0) {
+        std::cerr << "SSL connect failed\n";
+        ERR_print_errors_fp(stderr);
+        SSL_free(ssl);
+        close(sock);
+        SSL_CTX_free(ctx);
+        return 1;
+    }
+
+    std::cout << "Connected with " << SSL_get_cipher(ssl) << "\n";
+
+    // Prepare JSON data
+    std::string jsonData = R"({"ssid":"abc","password":"123"})";
+
+    // Send JSON data
+    int bytes = SSL_write(ssl, jsonData.c_str(), jsonData.size());
+    if (bytes <= 0) {
+        std::cerr << "SSL write failed\n";
+        ERR_print_errors_fp(stderr);
+    } else {
+        std::cout << "Sent JSON: " << jsonData << "\n";
+    }
+
+    // Cleanup
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+    close(sock);
+    SSL_CTX_free(ctx);
+    EVP_cleanup();
+
+    return 0;
+}
